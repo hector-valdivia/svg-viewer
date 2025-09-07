@@ -276,7 +276,7 @@
                         this.stadiumLoaded = true;
                         this.isExample = false;
                         this.$nextTick(() => {
-                            this.setupSvgPanZoom();
+                            setTimeout(() => this.setupSvgPanZoom(), 800);
                         });
                         this.updateInfo('✅ SVG del estadio cargado correctamente', 'success');
                     };
