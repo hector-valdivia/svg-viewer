@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor SVG Interactivo de Estadio - Vue.js</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        [v-cloak] { display: none; }
+        
+        .svg-section {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .svg-section:hover {
+            filter: brightness(1.3);
+            transform: scale(1.05);
+            transform-origin: center;
+        }
+        
+        .svg-section.selected {
+            filter: brightness(1.5) saturate(1.5);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.5s;
+        }
+        
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+        
+        .slide-enter-active, .slide-leave-active {
+            transition: all 0.3s ease;
+        }
+        
+        .slide-enter-from {
+            transform: translateX(-20px);
+            opacity: 0;
+        }
+        
+        .slide-leave-to {
+            transform: translateX(20px);
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" v-cloak class="bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 min-h-screen text-white">
+        <div class="container mx-auto p-6">
+            <div class="flex flex-col lg:flex-row gap-6 min-h-screen">
+                <!-- Vista Principal -->
+                <div class="flex-1 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 shadow-2xl">
+                    <div class="flex items-center justify-between mb-6">
+                        <h1 class="text-3xl font-bold flex items-center gap-3">
+                            <span class="text-4xl">🏟️</span>
+                            <span class="bg-gradient-to-r from-yellow-400 to-orange-400 bg-clip-text text-transparent">
+                                Visor de Estadio
+                            </span>
+                        </h1>
+                        
+                        <transition name="slide">
+                            <div v-if="stadiumLoaded" class="flex gap-2">
+                                <button 
+                                    @click="reloadStadium"
+                                    class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 hover:scale-105"
+                                >
+                                    <span>🔄</span>
+                                    <span class="hidden sm:inline">Recargar</span>
+                                </button>
+                                <button 
+                                    @click="clearStadium"
+                                    class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 hover:scale-105"
+                                >
+                                    <span>❌</span>
+                                    <span class="hidden sm:inline">Limpiar</span>
+                                </button>
+                            </div>
+                        </transition>
+                    </div>
+                    
+                    <div class="flex-1 bg-black/20 rounded-xl border-2 border-dashed border-white/30 min-h-[500px] flex items-center justify-center overflow-auto p-4">
+                        <!-- Área de carga -->
+                        <transition name="fade">
+                            <div v-if="!stadiumLoaded" class="text-center">
+                                <label for="mainSvgFile" class="cursor-pointer group">
+                                    <div class="bg-white/10 hover:bg-white/20 rounded-xl p-12 transition-all duration-300 border-2 border-dashed border-white/30 hover:border-white/50">
+                                        <input 
+                                            type="file" 
+                                            id="mainSvgFile" 
+                                            accept=".svg" 
+                                            class="hidden" 
+                                            @change="loadMainSvg"
+                                            ref="fileInput"
+                                        >
+                                        <div class="text-6xl mb-4 group-hover:scale-110 transition-transform">📁</div>
+                                        <div class="text-xl font-semibold mb-2">Haz clic para cargar el SVG del estadio</div>
+                                        <div class="text-sm text-white/60">Archivo SVG solamente (.svg)</div>
+                                    </div>
+                                </label>
+                                <button 
+                                    @click="loadExample"
+                                    class="mt-4 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg"
+                                >
+                                    ✨ Cargar Ejemplo
+                                </button>
+                            </div>
+                        </transition>
+                        
+                        <!-- SVG del estadio -->
+                        <transition name="fade">
+                            <div v-if="stadiumLoaded" v-html="currentSvg" class="w-full h-full flex items-center justify-center"></div>
+                        </transition>
+                    </div>
+                </div>
+
+                <!-- Panel de Detalles -->
+                <div class="w-full lg:w-96 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 shadow-2xl">
+                    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">
+                        <span class="text-2xl">🔍</span>
+                        <span>Vista Detallada</span>
+                    </h2>
+                    
+                    <!-- Panel de Configuración -->
+                    <div class="bg-white/10 rounded-lg p-4 mb-4 border border-white/20">
+                        <label for="baseUrl" class="block text-yellow-400 font-semibold mb-2">
+                            URL base para SVGs de detalle:
+                        </label>
+                        <input 
+                            type="url" 
+                            v-model="baseUrl"
+                            @change="updateBaseUrl"
+                            placeholder="https://ejemplo.com/secciones/"
+                            class="w-full px-4 py-2 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/50"
+                        >
+                        <div class="text-xs text-white/60 mt-2">
+                            Formato: [URL_BASE][ID_SECCION].svg
+                        </div>
+                    </div>
+
+                    <!-- Contenedor SVG de Detalle -->
+                    <div class="bg-black/20 rounded-xl border-2 border-dashed border-white/30 min-h-[300px] flex items-center justify-center overflow-auto p-4 mb-4">
+                        <transition name="fade" mode="out-in">
+                            <!-- Estado inicial -->
+                            <div v-if="!detailLoading && !detailSvg && !detailError" class="text-center text-white/70">
+                                <div class="text-5xl mb-4 animate-bounce">👆</div>
+                                <div class="text-lg font-semibold mb-2">Selecciona una sección</div>
+                                <div class="text-sm">Haz clic en cualquier elemento del estadio</div>
+                            </div>
+                            
+                            <!-- Cargando -->
+                            <div v-else-if="detailLoading" class="text-center">
+                                <div class="w-12 h-12 border-4 border-white/30 border-l-yellow-400 rounded-full spinner mb-4"></div>
+                                <div class="text-white/70">Cargando vista detallada...</div>
+                                <div class="text-xs text-white/50 mt-2">{{ baseUrl }}{{ selectedSectionId }}.svg</div>
+                            </div>
+                            
+                            <!-- Error -->
+                            <div v-else-if="detailError" class="text-center text-red-400">
+                                <div class="text-5xl mb-4">❌</div>
+                                <div class="text-lg font-semibold mb-2">Error al cargar</div>
+                                <div class="text-sm mb-2">Sección: {{ selectedSectionId }}</div>
+                                <div class="text-xs text-white/50">
+                                    {{ baseUrl }}{{ selectedSectionId }}.svg<br>
+                                    Error: {{ detailError }}
+                                </div>
+                            </div>
+                            
+                            <!-- SVG de detalle -->
+                            <div v-else-if="detailSvg" v-html="detailSvg" class="w-full h-full"></div>
+                        </transition>
+                    </div>
+                    
+                    <!-- Panel de Información -->
+                    <div class="bg-white/10 rounded-lg p-4 border border-white/20">
+                        <h3 class="text-yellow-400 font-bold mb-3 flex items-center gap-2">
+                            <span>ℹ️</span>
+                            <span>Información</span>
+                        </h3>
+                        <transition name="slide" mode="out-in">
+                            <div class="text-sm space-y-2" :key="lastMessage">
+                                <p :class="messageColorClass" class="font-semibold">{{ lastMessage }}</p>
+                                <p class="text-white/60">⏰ {{ currentTime }}</p>
+                                <p class="text-white/60">📍 Sección: {{ selectedSectionId || 'Ninguna' }}</p>
+                                <p class="text-white/60">📊 Estadio: {{ stadiumStatus }}</p>
+                                <p class="text-white/60">🔢 Secciones: {{ sectionsCount }}</p>
+                            </div>
+                        </transition>
+                        <button 
+                            @click="clearSelection"
+                            :disabled="!selectedSectionId"
+                            class="mt-4 w-full px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+                        >
+                            <span>🗑️</span>
+                            <span>Limpiar Selección</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    currentSvg: null,
+                    stadiumLoaded: false,
+                    isExample: false,
+                    baseUrl: 'https://ejemplo.com/secciones/',
+                    selectedSectionId: null,
+                    detailSvg: null,
+                    detailLoading: false,
+                    detailError: null,
+                    lastMessage: 'Carga un SVG del estadio para comenzar',
+                    messageType: 'info',
+                    currentTime: new Date().toLocaleTimeString('es-MX'),
+                    sectionsCount: 0
+                }
+            },
+            computed: {
+                stadiumStatus() {
+                    if (!this.stadiumLoaded) return 'No cargado';
+                    return this.isExample ? 'Ejemplo' : 'Personalizado';
+                },
+                messageColorClass() {
+                    const colors = {
+                        success: 'text-green-400',
+                        error: 'text-red-400',
+                        warning: 'text-yellow-400',
+                        info: 'text-blue-400'
+                    };
+                    return colors[this.messageType] || 'text-blue-400';
+                }
+            },
+            methods: {
+                loadMainSvg(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.currentSvg = e.target.result;
+                        this.stadiumLoaded = true;
+                        this.isExample = false;
+                        this.$nextTick(() => {
+                            this.setupSvgInteractions();
+                        });
+                        this.updateInfo('✅ SVG del estadio cargado correctamente', 'success');
+                    };
+                    reader.onerror = () => {
+                        this.updateInfo('❌ Error al leer el archivo', 'error');
+                    };
+                    reader.readAsText(file);
+                },
+                
+                loadExample() {
+                    this.currentSvg = this.getExampleSvg();
+                    this.stadiumLoaded = true;
+                    this.isExample = true;
+                    this.$nextTick(() => {
+                        this.setupSvgInteractions();
+                    });
+                    this.updateInfo('🎨 SVG de ejemplo cargado. ¡Haz clic en las secciones!', 'success');
+                },
+                
+                setupSvgInteractions() {
+                    const container = this.$el.querySelector('.flex-1 svg');
+                    if (!container) return;
+
+                    // Ajustar estilos del SVG
+                    container.style.maxWidth = '100%';
+                    container.style.maxHeight = '100%';
+                    
+                    // Buscar secciones clicables
+                    const sections = container.querySelectorAll('.svg-section');
+                    this.sectionsCount = sections.length;
+                    
+                    if (sections.length === 0) {
+                        this.updateInfo('⚠️ No se encontraron elementos con clase "svg-section"', 'warning');
+                    } else {
+                        this.updateInfo(`✅ ${sections.length} secciones clicables encontradas`, 'success');
+                    }
+
+                    // Agregar eventos de clic
+                    sections.forEach(section => {
+                        section.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            this.selectSection(section);
+                        });
+                    });
+                },
+                
+                selectSection(element) {
+                    // Remover selección anterior
+                    const prevSelected = this.$el.querySelector('.svg-section.selected');
+                    if (prevSelected) {
+                        prevSelected.classList.remove('selected');
+                    }
+
+                    // Nueva selección
+                    element.classList.add('selected');
+                    this.selectedSectionId = element.id || `section-${Date.now()}`;
+                    this.updateInfo(`🎯 Sección seleccionada: ${this.selectedSectionId}`, 'info');
+                    this.loadDetailSvg();
+                },
+                
+                async loadDetailSvg() {
+                    this.detailLoading = true;
+                    this.detailError = null;
+                    this.detailSvg = null;
+
+                    try {
+                        const url = `${this.baseUrl}${this.selectedSectionId}.svg`;
+                        
+                        // Simulación de carga (remover en producción)
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        const response = await fetch(url);
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        const svgContent = await response.text();
+                        this.detailSvg = svgContent;
+                        this.$nextTick(() => {
+                            this.setupDetailInteractions();
+                        });
+                        this.updateInfo(`✅ Vista detallada cargada: ${this.selectedSectionId}`, 'success');
+
+                    } catch (error) {
+                        this.detailError = error.message;
+                        this.updateInfo(`❌ Error al cargar: ${this.selectedSectionId}`, 'error');
+                    } finally {
+                        this.detailLoading = false;
+                    }
+                },
+                
+                setupDetailInteractions() {
+                    const container = this.$el.querySelector('.bg-black\\/20 svg');
+                    if (!container) return;
+
+                    container.style.maxWidth = '100%';
+                    container.style.maxHeight = '100%';
+                    
+                    // Agregar interactividad
+                    const elements = container.querySelectorAll('[id], circle, rect, path, polygon');
+                    elements.forEach(el => {
+                        el.style.cursor = 'pointer';
+                        el.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const id = el.id || 'sin-id';
+                            this.updateInfo(`🎯 Elemento: ${id} en ${this.selectedSectionId}`, 'info');
+                            
+                            // Efecto visual
+                            const original = el.getAttribute('fill');
+                            el.setAttribute('fill', '#FFD700');
+                            setTimeout(() => {
+                                if (original) el.setAttribute('fill', original);
+                            }, 300);
+                        });
+                    });
+                },
+                
+                clearStadium() {
+                    if (this.currentSvg && !this.isExample) {
+                        if (!confirm('¿Estás seguro de que quieres limpiar el estadio actual?')) {
+                            return;
+                        }
+                    }
+                    
+                    this.currentSvg = null;
+                    this.stadiumLoaded = false;
+                    this.isExample = false;
+                    this.selectedSectionId = null;
+                    this.detailSvg = null;
+                    this.detailError = null;
+                    this.sectionsCount = 0;
+                    
+                    if (this.$refs.fileInput) {
+                        this.$refs.fileInput.value = '';
+                    }
+                    
+                    this.updateInfo('🗑️ Estadio limpiado. Puedes cargar un nuevo SVG', 'info');
+                },
+                
+                reloadStadium() {
+                    if (!this.currentSvg) {
+                        this.updateInfo('⚠️ No hay estadio para recargar', 'warning');
+                        return;
+                    }
+                    
+                    this.selectedSectionId = null;
+                    this.detailSvg = null;
+                    this.detailError = null;
+                    
+                    this.$nextTick(() => {
+                        this.setupSvgInteractions();
+                    });
+                    
+                    this.updateInfo('🔄 Estadio recargado correctamente', 'success');
+                },
+                
+                clearSelection() {
+                    const selected = this.$el.querySelector('.svg-section.selected');
+                    if (selected) {
+                        selected.classList.remove('selected');
+                    }
+                    
+                    this.selectedSectionId = null;
+                    this.detailSvg = null;
+                    this.detailError = null;
+                    this.detailZoom = 1;
+                    this.detailTranslate = { x: 0, y: 0 };
+                    
+                    this.updateInfo('🗑️ Selección limpiada', 'info');
+                },
+                
+                updateBaseUrl() {
+                    this.updateInfo(`🔗 URL base actualizada: ${this.baseUrl}`, 'info');
+                },
+                
+                updateInfo(message, type = 'info') {
+                    this.lastMessage = message;
+                    this.messageType = type;
+                    this.currentTime = new Date().toLocaleTimeString('es-MX');
+                },
+                
+                getExampleSvg() {
+                    return `
+                        <svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Campo -->
+                            <rect x="250" y="200" width="300" height="200" fill="#10B981" stroke="#059669" stroke-width="3"/>
+                            <circle cx="400" cy="300" r="50" fill="none" stroke="#059669" stroke-width="2"/>
+                            <line x1="400" y1="200" x2="400" y2="400" stroke="#059669" stroke-width="2"/>
+                            
+                            <!-- Secciones -->
+                            <g class="svg-section" id="norte">
+                                <path d="M 200 100 L 600 100 L 550 200 L 250 200 Z" fill="#EF4444" stroke="#DC2626" stroke-width="2"/>
+                                <text x="400" y="150" text-anchor="middle" fill="white" font-size="20" font-weight="bold">NORTE</text>
+                            </g>
+                            
+                            <g class="svg-section" id="sur">
+                                <path d="M 250 400 L 550 400 L 600 500 L 200 500 Z" fill="#3B82F6" stroke="#2563EB" stroke-width="2"/>
+                                <text x="400" y="450" text-anchor="middle" fill="white" font-size="20" font-weight="bold">SUR</text>
+                            </g>
+                            
+                            <g class="svg-section" id="este">
+                                <path d="M 550 200 L 650 150 L 700 450 L 550 400 Z" fill="#8B5CF6" stroke="#7C3AED" stroke-width="2"/>
+                                <text x="625" y="300" text-anchor="middle" fill="white" font-size="18" font-weight="bold">ESTE</text>
+                            </g>
+                            
+                            <g class="svg-section" id="oeste">
+                                <path d="M 250 200 L 250 400 L 100 450 L 150 150 Z" fill="#F59E0B" stroke="#D97706" stroke-width="2"/>
+                                <text x="175" y="300" text-anchor="middle" fill="white" font-size="18" font-weight="bold">OESTE</text>
+                            </g>
+                            
+                            <g class="svg-section" id="vip">
+                                <rect x="320" y="130" width="160" height="50" fill="#EC4899" stroke="#DB2777" stroke-width="2" rx="5"/>
+                                <text x="400" y="160" text-anchor="middle" fill="white" font-size="16" font-weight="bold">VIP</text>
+                            </g>
+                        </svg>
+                    `;
+                }
+            },
+            mounted() {
+                // Actualizar hora cada segundo
+                setInterval(() => {
+                    this.currentTime = new Date().toLocaleTimeString('es-MX');
+                }, 1000);
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
